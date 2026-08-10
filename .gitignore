@@ -1,0 +1,26 @@
+# Node / React Native
+node_modules/
+.npm
+.yarn/
+*.log
+
+# Android
+.gradle/
+build/
+android/app/build/
+android/.gradle/
+*.apk
+*.aab
+
+# .NET / C#
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.userossc
+*.suo
+
+# Operating System
+.DS_Store
+Thumbs.db
