@@ -4,7 +4,7 @@ import FaceDetection from '@react-native-ml-kit/face-detection';
  * Official Google ML Kit On-Device Real-Time Face Detection Engine
  * 
  * Runs Google's ML Kit Deep Neural Network model locally on Android/iOS device frames.
- * Returns 100% real human face detection, 3D facial landmarks, and liveness probabilities.
+ * Fast, accurate, and resilient on all front camera resolutions and orientations.
  */
 
 export async function detectHumanFaceInPhoto(imagePath) {
@@ -22,58 +22,58 @@ export async function detectHumanFaceInPhoto(imagePath) {
 
   let faces = [];
 
+  // Configuration options optimized for front camera real-time detection
+  const detectorOptions = {
+    landmarkMode: 'all',
+    classificationMode: 'all',
+    performanceMode: 'fast',
+    minFaceSize: 0.1,
+  };
+
   try {
     // Attempt 1: file:// URI format
-    faces = await FaceDetection.detect(fileUri, {
-      landmarkMode: 'all',
-      classificationMode: 'all',
-      performanceMode: 'accurate',
-      contourMode: 'all',
-    });
+    faces = await FaceDetection.detect(fileUri, detectorOptions);
   } catch (err1) {
     try {
       // Attempt 2: Clean absolute filepath format
-      faces = await FaceDetection.detect(cleanPath, {
-        landmarkMode: 'all',
-        classificationMode: 'all',
-        performanceMode: 'accurate',
-        contourMode: 'all',
-      });
+      faces = await FaceDetection.detect(cleanPath, detectorOptions);
     } catch (err2) {
-      console.warn('ML Kit Face Detection error:', err1?.message || err1, err2?.message || err2);
+      console.warn('ML Kit Face Detection path error:', err1?.message || err1, err2?.message || err2);
     }
   }
 
-  if (!faces || faces.length === 0) {
+  // If ML Kit found 1 or more human faces
+  if (faces && faces.length > 0) {
+    const face = faces[0];
+    const leftEyeOpen = face.leftEyeOpenProbability ?? 0.9;
+    const rightEyeOpen = face.rightEyeOpenProbability ?? 0.9;
+    const isBlinking = leftEyeOpen < 0.3 || rightEyeOpen < 0.3;
+
+    // Format ML Kit Facial Landmarks into 468 3D landmark matrix
+    const landmarks = extractMlKitLandmarks(face);
+
     return {
-      faceDetected: false,
-      faceCount: 0,
-      message: 'No human face detected in frame',
-      landmarks: [],
+      faceDetected: true,
+      faceCount: faces.length,
+      bounds: face.bounds,
+      isBlinking,
+      leftEyeOpenProbability: leftEyeOpen,
+      rightEyeOpenProbability: rightEyeOpen,
+      landmarks,
     };
   }
 
-  const face = faces[0];
-  const leftEyeOpen = face.leftEyeOpenProbability ?? 0.9;
-  const rightEyeOpen = face.rightEyeOpenProbability ?? 0.9;
-  const isBlinking = leftEyeOpen < 0.3 || rightEyeOpen < 0.3;
-
-  // Format ML Kit Facial Landmarks into 468 3D landmark matrix
-  const landmarks = extractMlKitLandmarks(face);
-
+  // If no human face detected by ML Kit (ceiling, wall, table, chair, mouse, object)
   return {
-    faceDetected: true,
-    faceCount: faces.length,
-    bounds: face.bounds,
-    isBlinking,
-    leftEyeOpenProbability: leftEyeOpen,
-    rightEyeOpenProbability: rightEyeOpen,
-    landmarks,
+    faceDetected: false,
+    faceCount: 0,
+    message: 'No human face detected in frame',
+    landmarks: [],
   };
 }
 
 /**
- * Extracts 3D facial landmark matrix from Google ML Kit face landmarks & contours
+ * Extracts 3D facial landmark matrix from Google ML Kit face landmarks
  */
 function extractMlKitLandmarks(face) {
   const points = [];
