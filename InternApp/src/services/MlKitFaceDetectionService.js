@@ -4,7 +4,7 @@ import FaceDetection from '@react-native-ml-kit/face-detection';
  * Official Google ML Kit On-Device Real-Time Face Detection Engine
  * 
  * Runs Google's ML Kit Deep Neural Network model locally on Android/iOS device frames.
- * Fast, accurate, and resilient on all front camera resolutions and orientations.
+ * Fast, accurate, and resilient across all Android devices and camera resolutions.
  */
 
 export async function detectHumanFaceInPhoto(imagePath) {
@@ -20,30 +20,30 @@ export async function detectHumanFaceInPhoto(imagePath) {
   const cleanPath = imagePath.replace('file://', '');
   const fileUri = `file://${cleanPath}`;
 
-  let faces = [];
+  let faces = null;
+  let lastError = null;
 
-  // Configuration options optimized for front camera real-time detection
-  const detectorOptions = {
-    landmarkMode: 'all',
-    classificationMode: 'all',
-    performanceMode: 'fast',
-    minFaceSize: 0.1,
-  };
-
+  // Attempt 1: Call ML Kit with fileUri and native default options
   try {
-    // Attempt 1: file:// URI format
-    faces = await FaceDetection.detect(fileUri, detectorOptions);
-  } catch (err1) {
+    faces = await FaceDetection.detect(fileUri);
+  } catch (e1) {
+    lastError = e1;
     try {
-      // Attempt 2: Clean absolute filepath format
-      faces = await FaceDetection.detect(cleanPath, detectorOptions);
-    } catch (err2) {
-      console.warn('ML Kit Face Detection path error:', err1?.message || err1, err2?.message || err2);
+      // Attempt 2: Clean absolute filepath
+      faces = await FaceDetection.detect(cleanPath);
+    } catch (e2) {
+      lastError = e2;
+      try {
+        // Attempt 3: Pass empty options object
+        faces = await FaceDetection.detect(fileUri, {});
+      } catch (e3) {
+        lastError = e3;
+      }
     }
   }
 
   // If ML Kit found 1 or more human faces
-  if (faces && faces.length > 0) {
+  if (faces && Array.isArray(faces) && faces.length > 0) {
     const face = faces[0];
     const leftEyeOpen = face.leftEyeOpenProbability ?? 0.9;
     const rightEyeOpen = face.rightEyeOpenProbability ?? 0.9;
@@ -63,11 +63,11 @@ export async function detectHumanFaceInPhoto(imagePath) {
     };
   }
 
-  // If no human face detected by ML Kit (ceiling, wall, table, chair, mouse, object)
+  // If ML Kit returned 0 faces (ceiling, wall, table, chair, mouse, object)
   return {
     faceDetected: false,
     faceCount: 0,
-    message: 'No human face detected in frame',
+    message: lastError ? `ML Kit Error: ${lastError.message || lastError}` : 'No human face detected in camera view',
     landmarks: [],
   };
 }
