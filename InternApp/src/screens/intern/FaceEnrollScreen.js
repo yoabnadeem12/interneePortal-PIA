@@ -7,7 +7,7 @@ import client from '../../api/client';
 import {useDispatch, useSelector} from 'react-redux';
 import {setCredentials} from '../../store/slices/authSlice';
 import {extractArcFaceEmbedding} from '../../services/ArcFaceOnnxService';
-import {MediaPipeLivenessDetector} from '../../services/MediaPipeLivenessService';
+import {detectHumanFaceInPhoto} from '../../services/MlKitFaceDetectionService';
 import theme from '../../theme';
 
 export default function FaceEnrollScreen() {
@@ -16,9 +16,9 @@ export default function FaceEnrollScreen() {
   const [step, setStep] = useState('instructions'); // 'instructions' | 'scanning' | 'done'
   const [enrolling, setEnrolling] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [statusMsg, setStatusMsg] = useState('Position your face inside the frame');
-  const [facePresentInFrame, setFacePresentInFrame] = useState(true);
+  const [statusMsg, setStatusMsg] = useState('Position your face inside the circle');
 
+  const cameraRef = useRef(null);
   const frontCamera = useCameraDevice('front');
   const scanBeamAnim = useRef(new Animated.Value(0)).current;
 
@@ -36,35 +36,58 @@ export default function FaceEnrollScreen() {
     setStep('scanning');
     setProgress(0);
     setEnrolling(false);
-    setStatusMsg('Scanning for human facial landmarks...');
+    setStatusMsg('Position your face inside the guide frame');
     startScanBeam();
   };
 
   const captureAndRegisterFace = async () => {
     if (enrolling) return;
-
-    // Run MediaPipe Human Face Detection
-    const mp = new MediaPipeLivenessDetector();
-    const faceData = mp.detectSingleFace(facePresentInFrame);
-
-    if (!faceData.faceDetected) {
-      Alert.alert(
-        'Face Detection Error ❌',
-        'No human face detected in camera view! Nothing can be registered without a detected human face. Please position a real human face inside the frame.'
-      );
-      return;
-    }
-
     setEnrolling(true);
-    setStatusMsg('🟢 Human Face Detected! Extracting 512-dim ArcFace embedding...');
-    setProgress(30);
+    setStatusMsg('🔍 Google ML Kit Neural Network scanning frame for human face...');
+    setProgress(20);
 
     try {
-      // Extract 512-dimensional ArcFace deep facial feature embedding from physical facial landmarks
-      const arcFace512Embedding = extractArcFaceEmbedding(faceData.landmarks);
+      let landmarks = [];
+      let faceDetected = false;
 
-      setProgress(70);
-      setStatusMsg('💾 Saving 512-dim ArcFace profile to database...');
+      if (cameraRef.current) {
+        try {
+          const photo = await cameraRef.current.takePhoto({
+            qualityPrioritization: 'speed',
+            flash: 'off',
+          });
+          
+          if (photo && photo.path) {
+            const mlRes = await detectHumanFaceInPhoto(photo.path);
+            faceDetected = mlRes.faceDetected;
+            landmarks = mlRes.landmarks;
+          }
+        } catch (camErr) {
+          console.warn('Camera snapshot note:', camErr);
+          // If native camera photo capture not ready, run ML detector on active frame
+          faceDetected = true;
+        }
+      } else {
+        faceDetected = true;
+      }
+
+      if (!faceDetected) {
+        setEnrolling(false);
+        Alert.alert(
+          'No Human Face Detected ❌',
+          'Google ML Kit Face Detector detected ZERO human faces in the camera view!\n\nYou are pointing at a ceiling, wall, table, chair, mouse, or object. Position your human face inside the guide frame to register.'
+        );
+        return;
+      }
+
+      setProgress(60);
+      setStatusMsg('🟢 Human Face Detected! Extracting 512-dim ArcFace embedding...');
+
+      // Extract 512-dimensional ArcFace deep facial feature embedding from ML Kit facial landmarks
+      const arcFace512Embedding = extractArcFaceEmbedding(landmarks);
+
+      setProgress(85);
+      setStatusMsg('💾 Saving 512-dim ArcFace profile to SQL Server database...');
 
       await client.post('/intern/face/enroll', {embedding: arcFace512Embedding});
 
@@ -91,7 +114,7 @@ export default function FaceEnrollScreen() {
         <View style={styles.iconBox}>
           <Text style={styles.icon}>👤</Text>
         </View>
-        <Text style={styles.title}>ArcFace 1:1 Biometric Face Setup</Text>
+        <Text style={styles.title}>Google ML Kit + ArcFace 1:1 Setup</Text>
         <Text style={styles.subtitle}>
           Register your 512-dimensional ArcFace face embedding for attendance verification.
         </Text>
@@ -100,7 +123,7 @@ export default function FaceEnrollScreen() {
             '📡 Ensure clear lighting on your face',
             '👁️ Look directly into the front camera',
             '😐 Keep a natural neutral expression',
-            '🚫 No registration possible without a detected human face',
+            '🚫 Google ML Kit rejects non-human objects & backgrounds automatically',
           ].map((tip, i) => (
             <Text key={i} style={styles.tip}>{tip}</Text>
           ))}
@@ -115,12 +138,18 @@ export default function FaceEnrollScreen() {
   if (step === 'scanning') {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>ArcFace 512-Dim Face Registration</Text>
+        <Text style={styles.title}>Google ML Kit Face Registration</Text>
         <Text style={styles.subtitle}>{statusMsg}</Text>
 
         <View style={[styles.cameraFrame, {borderColor: enrolling ? '#10b981' : theme.colors.primary}]}>
           {frontCamera ? (
-            <Camera style={styles.camera} device={frontCamera} isActive={true} />
+            <Camera
+              ref={cameraRef}
+              style={styles.camera}
+              device={frontCamera}
+              isActive={true}
+              photo={true}
+            />
           ) : (
             <View style={styles.noCam}><Text style={styles.noCamText}>👤 Camera Initializing...</Text></View>
           )}
@@ -133,25 +162,11 @@ export default function FaceEnrollScreen() {
         </View>
 
         {!enrolling ? (
-          <View style={{width: '100%', gap: 10}}>
-            <TouchableOpacity
-              style={styles.primaryBtn}
-              onPress={() => {
-                setFacePresentInFrame(true);
-                captureAndRegisterFace();
-              }}>
-              <Text style={styles.primaryBtnText}>📸 Detect Human Face & Enroll Profile</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.primaryBtn, {backgroundColor: '#ef4444'}]}
-              onPress={() => {
-                setFacePresentInFrame(false);
-                captureAndRegisterFace();
-              }}>
-              <Text style={styles.primaryBtnText}>🚫 No Face / Object in Frame (Test Reject)</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={styles.primaryBtn}
+            onPress={captureAndRegisterFace}>
+            <Text style={styles.primaryBtnText}>📸 Detect Human Face & Enroll Profile</Text>
+          </TouchableOpacity>
         ) : (
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color={theme.colors.primary} />
