@@ -1,60 +1,75 @@
 import FaceDetection from '@react-native-ml-kit/face-detection';
 
 /**
- * Official Google ML Kit On-Device Real-Time Face Detection & Liveness Engine
+ * Official Google ML Kit On-Device Real-Time Face Detection Engine
  * 
  * Runs Google's ML Kit Deep Neural Network model locally on Android/iOS device frames.
  * Returns 100% real human face detection, 3D facial landmarks, and liveness probabilities.
  */
 
 export async function detectHumanFaceInPhoto(imagePath) {
+  if (!imagePath) {
+    return {
+      faceDetected: false,
+      faceCount: 0,
+      message: 'Invalid image path',
+      landmarks: [],
+    };
+  }
+
+  const cleanPath = imagePath.replace('file://', '');
+  const fileUri = `file://${cleanPath}`;
+
+  let faces = [];
+
   try {
-    const formattedPath = imagePath.startsWith('file://') ? imagePath : `file://${imagePath}`;
-    
-    // Run Google ML Kit Face Detection Neural Network
-    const faces = await FaceDetection.detect(formattedPath, {
+    // Attempt 1: file:// URI format
+    faces = await FaceDetection.detect(fileUri, {
       landmarkMode: 'all',
       classificationMode: 'all',
       performanceMode: 'accurate',
       contourMode: 'all',
     });
-
-    if (!faces || faces.length === 0) {
-      return {
-        faceDetected: false,
-        faceCount: 0,
-        message: 'No human face detected in frame (Ceiling/Wall/Background/Object detected)',
-        landmarks: [],
-      };
+  } catch (err1) {
+    try {
+      // Attempt 2: Clean absolute filepath format
+      faces = await FaceDetection.detect(cleanPath, {
+        landmarkMode: 'all',
+        classificationMode: 'all',
+        performanceMode: 'accurate',
+        contourMode: 'all',
+      });
+    } catch (err2) {
+      console.warn('ML Kit Face Detection error:', err1?.message || err1, err2?.message || err2);
     }
+  }
 
-    const face = faces[0];
-    const leftEyeOpen = face.leftEyeOpenProbability ?? 0.9;
-    const rightEyeOpen = face.rightEyeOpenProbability ?? 0.9;
-    const isBlinking = leftEyeOpen < 0.3 || rightEyeOpen < 0.3;
-
-    // Format ML Kit Facial Landmarks into 468 3D landmark matrix
-    const landmarks = extractMlKitLandmarks(face);
-
-    return {
-      faceDetected: true,
-      faceCount: faces.length,
-      bounds: face.bounds,
-      isBlinking,
-      leftEyeOpenProbability: leftEyeOpen,
-      rightEyeOpenProbability: rightEyeOpen,
-      landmarks,
-    };
-  } catch (error) {
-    console.warn('ML Kit Face Detection error:', error);
-    // Fallback to strict facial validation
+  if (!faces || faces.length === 0) {
     return {
       faceDetected: false,
       faceCount: 0,
-      message: 'Failed to process face frame',
+      message: 'No human face detected in frame',
       landmarks: [],
     };
   }
+
+  const face = faces[0];
+  const leftEyeOpen = face.leftEyeOpenProbability ?? 0.9;
+  const rightEyeOpen = face.rightEyeOpenProbability ?? 0.9;
+  const isBlinking = leftEyeOpen < 0.3 || rightEyeOpen < 0.3;
+
+  // Format ML Kit Facial Landmarks into 468 3D landmark matrix
+  const landmarks = extractMlKitLandmarks(face);
+
+  return {
+    faceDetected: true,
+    faceCount: faces.length,
+    bounds: face.bounds,
+    isBlinking,
+    leftEyeOpenProbability: leftEyeOpen,
+    rightEyeOpenProbability: rightEyeOpen,
+    landmarks,
+  };
 }
 
 /**
