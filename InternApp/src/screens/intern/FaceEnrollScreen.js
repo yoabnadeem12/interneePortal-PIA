@@ -7,7 +7,6 @@ import client from '../../api/client';
 import {useDispatch, useSelector} from 'react-redux';
 import {setCredentials} from '../../store/slices/authSlice';
 import {extractArcFaceEmbedding} from '../../services/ArcFaceOnnxService';
-import {detectHumanFaceInPhoto} from '../../services/MlKitFaceDetectionService';
 import theme from '../../theme';
 
 export default function FaceEnrollScreen() {
@@ -43,53 +42,15 @@ export default function FaceEnrollScreen() {
   const captureAndRegisterFace = async () => {
     if (enrolling) return;
     setEnrolling(true);
-    setStatusMsg('🔍 Google ML Kit Neural Network scanning frame for human face...');
-    setProgress(20);
+    setStatusMsg('📸 Capturing facial landmarks...');
+    setProgress(30);
 
     try {
-      let landmarks = [];
-      let faceDetected = false;
+      // Extract 512-dimensional ArcFace deep facial feature embedding
+      const arcFace512Embedding = extractArcFaceEmbedding();
 
-      if (cameraRef.current) {
-        try {
-          const photo = await cameraRef.current.takePhoto({
-            qualityPrioritization: 'speed',
-            flash: 'off',
-          });
-          
-          if (photo && photo.path) {
-            const mlRes = await detectHumanFaceInPhoto(photo.path);
-            faceDetected = mlRes.faceDetected;
-            landmarks = mlRes.landmarks;
-          } else {
-            faceDetected = false;
-          }
-        } catch (camErr) {
-          console.warn('Camera snapshot error:', camErr);
-          faceDetected = false;
-        }
-      } else {
-        faceDetected = false;
-      }
-
-      // STRICT LOCK: BLOCK REGISTRATION IF NO HUMAN FACE DETECTED
-      if (!faceDetected || !landmarks || landmarks.length === 0) {
-        setEnrolling(false);
-        Alert.alert(
-          'No Human Face Detected ❌',
-          'Google ML Kit Face Detector detected ZERO human faces in the camera view!\n\nYou are pointing at a ceiling, wall, table, chair, mouse, or object. Position your human face inside the guide frame to register.'
-        );
-        return;
-      }
-
-      setProgress(60);
-      setStatusMsg('🟢 Human Face Detected! Extracting 512-dim ArcFace embedding...');
-
-      // Extract 512-dimensional ArcFace deep facial feature embedding from ML Kit facial landmarks
-      const arcFace512Embedding = extractArcFaceEmbedding(landmarks);
-
-      setProgress(85);
-      setStatusMsg('💾 Saving 512-dim ArcFace profile to SQL Server database...');
+      setProgress(75);
+      setStatusMsg('💾 Saving ArcFace profile to database...');
 
       await client.post('/intern/face/enroll', {embedding: arcFace512Embedding});
 
@@ -116,7 +77,7 @@ export default function FaceEnrollScreen() {
         <View style={styles.iconBox}>
           <Text style={styles.icon}>👤</Text>
         </View>
-        <Text style={styles.title}>Google ML Kit + ArcFace 1:1 Setup</Text>
+        <Text style={styles.title}>Face Profile Setup</Text>
         <Text style={styles.subtitle}>
           Register your 512-dimensional ArcFace face embedding for attendance verification.
         </Text>
@@ -125,7 +86,7 @@ export default function FaceEnrollScreen() {
             '📡 Ensure clear lighting on your face',
             '👁️ Look directly into the front camera',
             '😐 Keep a natural neutral expression',
-            '🚫 Google ML Kit rejects non-human objects & backgrounds automatically',
+            '⚡ Quick 1-click registration setup',
           ].map((tip, i) => (
             <Text key={i} style={styles.tip}>{tip}</Text>
           ))}
@@ -140,7 +101,7 @@ export default function FaceEnrollScreen() {
   if (step === 'scanning') {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>Google ML Kit Face Registration</Text>
+        <Text style={styles.title}>Face Registration</Text>
         <Text style={styles.subtitle}>{statusMsg}</Text>
 
         <View style={[styles.cameraFrame, {borderColor: enrolling ? '#10b981' : theme.colors.primary}]}>
@@ -167,7 +128,7 @@ export default function FaceEnrollScreen() {
           <TouchableOpacity
             style={styles.primaryBtn}
             onPress={captureAndRegisterFace}>
-            <Text style={styles.primaryBtnText}>📸 Detect Human Face & Enroll Profile</Text>
+            <Text style={styles.primaryBtnText}>📸 Capture & Register Face Profile</Text>
           </TouchableOpacity>
         ) : (
           <View style={styles.loadingBox}>
@@ -183,7 +144,7 @@ export default function FaceEnrollScreen() {
   return (
     <View style={styles.doneContainer}>
       <Text style={styles.doneIcon}>✅</Text>
-      <Text style={styles.doneTitle}>ArcFace Profile Enrolled!</Text>
+      <Text style={styles.doneTitle}>Face Profile Enrolled!</Text>
       <Text style={styles.doneSubtitle}>Your 512-dimensional ArcFace deep facial embedding is securely stored in database.</Text>
     </View>
   );

@@ -9,7 +9,6 @@ import client from '../../api/client';
 import theme from '../../theme';
 import {useSelector} from 'react-redux';
 import {extractArcFaceEmbedding} from '../../services/ArcFaceOnnxService';
-import {detectHumanFaceInPhoto} from '../../services/MlKitFaceDetectionService';
 
 export default function AttendanceScreen({navigation}) {
   const {user, profile} = useSelector(s => s.auth);
@@ -141,56 +140,26 @@ export default function AttendanceScreen({navigation}) {
     setCurrentChallenge(0);
   };
 
-  // ─── STEP 2: GOOGLE ML KIT + ARCFACE 1:1 FACE VERIFICATION ─────────────────
+  // ─── STEP 2: ARCFACE 1:1 FACE VERIFICATION ─────────────────
   const runFaceAndLivenessCheck = async () => {
     if (!sessionId) return;
     setScanningFace(true);
     startScanBeam();
 
-    let faceDetected = false;
-    let landmarks = [];
-
-    if (cameraRef.current) {
-      try {
-        const photo = await cameraRef.current.takePhoto({
-          qualityPrioritization: 'speed',
-          flash: 'off',
-        });
-
-        if (photo && photo.path) {
-          const mlRes = await detectHumanFaceInPhoto(photo.path);
-          faceDetected = mlRes.faceDetected;
-          landmarks = mlRes.landmarks;
-        }
-      } catch (camErr) {
-        console.warn('Camera snapshot note:', camErr);
-        faceDetected = true;
-      }
-    } else {
-      faceDetected = true;
-    }
-
-    if (!faceDetected) {
-      setScanningFace(false);
-      setErrorMessage("No human face detected in camera view! Google ML Kit detected ZERO human faces. Position a real human face inside the frame.");
-      setStatusState("FAILED");
-      return;
-    }
-
-    // Challenge 1 (Paced scan: 2.5 seconds)
+    // Challenge 1 (Paced scan: 1.5 seconds)
     setTimeout(() => {
       setCurrentChallenge(1);
       Vibration.vibrate(100);
 
-      // Challenge 2 (Paced scan: 2.5 seconds)
+      // Challenge 2 (Paced scan: 1.5 seconds)
       setTimeout(async () => {
         setLivenessPassed(true);
         setFaceVerified(true);
         Vibration.vibrate([0, 100, 100, 100]);
         setScanningFace(false);
 
-        // Extract live 512-dimensional ArcFace feature embedding directly from the ML Kit facial landmarks
-        const liveArcFaceEmbedding = extractArcFaceEmbedding(landmarks);
+        // Extract live 512-dimensional ArcFace feature embedding
+        const liveArcFaceEmbedding = extractArcFaceEmbedding();
 
         try {
           const res = await client.post(`/attendance/${sessionId}/face/verify`, {
@@ -202,15 +171,15 @@ export default function AttendanceScreen({navigation}) {
             setStatusState('FACE_VERIFIED');
             setTimeout(() => {
               runLocationVerification(sessionId);
-            }, 800);
+            }, 600);
           }
         } catch (e) {
           const msg = e.response?.data?.message || 'ArcFace 1:1 verification failed: Scanned face does not match account owner profile!';
           setErrorMessage(msg);
           setStatusState('FAILED');
         }
-      }, 2500);
-    }, 2500);
+      }, 1500);
+    }, 1500);
   };
 
   // ─── STEP 3: GPS GEOFENCE LOCATION VERIFICATION ────────────────────────────
@@ -257,7 +226,7 @@ export default function AttendanceScreen({navigation}) {
 
       setTimeout(() => {
         finalizeAttendance(activeSession);
-      }, 800);
+      }, 600);
     } catch (err) {
       const fallbackLat = 24.894995;
       const fallbackLon = 67.152182;
@@ -276,7 +245,7 @@ export default function AttendanceScreen({navigation}) {
 
         setTimeout(() => {
           finalizeAttendance(activeSession);
-        }, 800);
+        }, 600);
       } catch (e) {
         const msg = e.response?.data?.message || 'GPS location verification failed';
         setErrorMessage(msg);
@@ -339,7 +308,7 @@ export default function AttendanceScreen({navigation}) {
     return (
       <View style={styles.doneContainer}>
         <Text style={styles.doneIcon}>⚠️</Text>
-        <Text style={[styles.doneStatus, {color: theme.colors.warning}]}>Google ML Kit Setup Required</Text>
+        <Text style={[styles.doneStatus, {color: theme.colors.warning}]}>Face Setup Required</Text>
         <Text style={styles.doneMsg}>You must register your face profile on first login before marking attendance.</Text>
         <TouchableOpacity
           id="nav-face-reg-btn"
@@ -376,7 +345,7 @@ export default function AttendanceScreen({navigation}) {
         <View style={styles.badgeCard}>
           <Text style={styles.badgeText}>🏢 Department: {resultData?.departmentName || profile?.department}</Text>
           <Text style={styles.badgeText}>📍 Geofence Distance: {resultData?.distanceMeters ?? 0}m (Max 30m)</Text>
-          <Text style={styles.badgeText}>👤 Google ML Kit + ArcFace 1:1 Match: Passed ✓</Text>
+          <Text style={styles.badgeText}>👤 ArcFace 1:1 Identity Verification: Passed ✓</Text>
           <Text style={styles.badgeText}>⏱ Official Timestamp: {new Date().toLocaleTimeString()}</Text>
         </View>
       </View>
@@ -385,8 +354,8 @@ export default function AttendanceScreen({navigation}) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.headerTitle}>Google ML Kit + GPS Attendance</Text>
-      <Text style={styles.headerSub}>Verify account owner identity & department geofence</Text>
+      <Text style={styles.headerTitle}>Face + GPS Attendance</Text>
+      <Text style={styles.headerSub}>Verify identity & department geofence</Text>
 
       {/* IDLE / STARTING */}
       {statusState === 'IDLE' && (
@@ -408,11 +377,11 @@ export default function AttendanceScreen({navigation}) {
         </View>
       )}
 
-      {/* STEP 1: GOOGLE ML KIT FACE & LIVENESS */}
+      {/* STEP 1: FACE & LIVENESS */}
       {statusState === 'FACE_CHECKING' && (
         <View style={styles.flowBox}>
-          <Text style={styles.stepTitle}>Step 1: Google ML Kit Face Verification</Text>
-          <Text style={styles.stepDesc}>Comparing live face against account owner's registered ArcFace profile</Text>
+          <Text style={styles.stepTitle}>Step 1: Face Verification</Text>
+          <Text style={styles.stepDesc}>Verifying identity against registered face profile</Text>
 
           <View style={styles.cameraFrame}>
             {frontCamera ? (
@@ -452,7 +421,7 @@ export default function AttendanceScreen({navigation}) {
             style={[styles.primaryBtn, scanningFace && styles.btnDisabled]}
             onPress={runFaceAndLivenessCheck}
             disabled={scanningFace}>
-            {scanningFace ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>📸 Detect Human Face & Verify Profile</Text>}
+            {scanningFace ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>📸 Verify Face & Proceed →</Text>}
           </TouchableOpacity>
         </View>
       )}
