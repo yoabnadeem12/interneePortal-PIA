@@ -161,16 +161,19 @@ export default function AttendanceScreen({navigation}) {
           const mlRes = await detectHumanFaceInPhoto(photo.path);
           faceDetected = mlRes.faceDetected;
           landmarks = mlRes.landmarks;
+        } else {
+          faceDetected = false;
         }
       } catch (camErr) {
-        console.warn('Camera snapshot note:', camErr);
-        faceDetected = true;
+        console.warn('Camera snapshot error:', camErr);
+        faceDetected = false;
       }
     } else {
-      faceDetected = true;
+      faceDetected = false;
     }
 
-    if (!faceDetected) {
+    // STRICT LOCK: REJECT VERIFICATION IF NO HUMAN FACE DETECTED
+    if (!faceDetected || !landmarks || landmarks.length === 0) {
       setScanningFace(false);
       setErrorMessage("No human face detected in camera view! Google ML Kit detected ZERO human faces. Position a real human face inside the frame.");
       setStatusState("FAILED");

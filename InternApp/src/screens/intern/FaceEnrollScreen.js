@@ -61,17 +61,19 @@ export default function FaceEnrollScreen() {
             const mlRes = await detectHumanFaceInPhoto(photo.path);
             faceDetected = mlRes.faceDetected;
             landmarks = mlRes.landmarks;
+          } else {
+            faceDetected = false;
           }
         } catch (camErr) {
-          console.warn('Camera snapshot note:', camErr);
-          // If native camera photo capture not ready, run ML detector on active frame
-          faceDetected = true;
+          console.warn('Camera snapshot error:', camErr);
+          faceDetected = false;
         }
       } else {
-        faceDetected = true;
+        faceDetected = false;
       }
 
-      if (!faceDetected) {
+      // STRICT LOCK: BLOCK REGISTRATION IF NO HUMAN FACE DETECTED
+      if (!faceDetected || !landmarks || landmarks.length === 0) {
         setEnrolling(false);
         Alert.alert(
           'No Human Face Detected ❌',
